@@ -59,6 +59,13 @@ export async function POST(request: NextRequest) {
     }
 
     // Delete all user data (CASCADE will handle related records)
+    if (!supabaseAdmin) {
+      return NextResponse.json(
+        { success: false, error: 'Server configuration error' },
+        { status: 500 }
+      );
+    }
+
     const { error: deleteError } = await supabaseAdmin
       .from('users')
       .delete()
