@@ -69,7 +69,7 @@ export default function AnimatedTitle() {
     <h1
       className="text-3xl sm:text-4xl md:text-5xl lg:text-6xl font-bold leading-tight break-words"
       style={{
-        color: '#1a73e8',
+        color: 'var(--primary)',
         textShadow: `
           -1px -1px 0 rgba(255, 255, 255, 0.5),
           1px 1px 2px rgba(0, 0, 0, 0.2),

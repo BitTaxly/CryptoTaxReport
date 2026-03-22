@@ -19,17 +19,40 @@ import {
   DeFiPosition,
 } from '@/types';
 import { MAX_WALLETS } from '@/utils/constants';
+import { checkRateLimit, getClientIdentifier, RATE_LIMITS } from '@/lib/rateLimiter';
 
 export const maxDuration = 60; // 60 seconds timeout
 
 /**
  * POST /api/analyze-wallets
  * Analyzes wallet addresses and generates tax report data
+ * Security: Rate limited to prevent abuse
  */
 export async function POST(
   request: NextRequest
 ): Promise<NextResponse<AnalyzeWalletsResponse>> {
   try {
+    // Rate limiting for security (GDPR-compliant - only hashed IPs)
+    const identifier = getClientIdentifier(request);
+    const rateLimit = checkRateLimit(identifier, RATE_LIMITS.analysis);
+
+    if (!rateLimit.allowed) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'Too many analysis requests. Please wait before trying again.',
+        },
+        {
+          status: 429,
+          headers: {
+            'Retry-After': Math.ceil((rateLimit.resetTime - Date.now()) / 1000).toString(),
+            'X-RateLimit-Remaining': '0',
+            'X-RateLimit-Reset': new Date(rateLimit.resetTime).toISOString(),
+          }
+        }
+      );
+    }
+
     const body: AnalyzeWalletsRequest = await request.json();
 
     // Validate request
