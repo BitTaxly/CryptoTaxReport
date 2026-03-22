@@ -1,7 +1,9 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useSession, signIn, signOut } from 'next-auth/react';
+import { useAuth } from '@/contexts/AuthContext';
+import { signOut } from '@/lib/authHelpers';
+import { useRouter } from 'next/navigation';
 import { TaxReport } from '@/types';
 import { MAX_WALLETS, getDefaultReportDate } from '@/utils/constants';
 import { detectBlockchain, getBlockchainLogo } from '@/services/blockchainDetector';
@@ -18,7 +20,8 @@ import Tooltip from '@/components/Tooltip';
 import AnimatedTitle from '@/components/AnimatedTitle';
 
 export default function Home() {
-  const { data: session, status } = useSession();
+  const { user, loading: authLoading } = useAuth();
+  const router = useRouter();
   const toast = useToast();
   const [theme, setTheme] = useState<'light' | 'dark'>('light');
   const [wallets, setWallets] = useState<string[]>(['']);
@@ -55,10 +58,10 @@ export default function Home() {
 
   // Load wallet sets from API when user is authenticated
   useEffect(() => {
-    if (session) {
+    if (user) {
       fetchWalletSets();
     }
-  }, [session]);
+  }, [user]);
 
   // Fetch exchange rates on mount
   useEffect(() => {
@@ -78,7 +81,7 @@ export default function Home() {
 
   // Fetch wallet sets from API
   const fetchWalletSets = async () => {
-    if (!session) return;
+    if (!user) return;
 
     try {
       const response = await fetch('/api/wallet-sets');
@@ -95,7 +98,7 @@ export default function Home() {
 
   // Open save wallet modal
   const handleOpenSaveModal = () => {
-    if (!session) {
+    if (!user) {
       toast.error('Please sign in to save wallet sets');
       return;
     }
@@ -111,7 +114,7 @@ export default function Home() {
 
   // Save wallet set via API
   const handleSaveWalletSet = async () => {
-    if (!saveSetName.trim() || !session) {
+    if (!saveSetName.trim() || !user) {
       return;
     }
 
@@ -145,7 +148,7 @@ export default function Home() {
 
   // Open load wallet modal
   const handleOpenLoadModal = () => {
-    if (!session) {
+    if (!user) {
       toast.error('Please sign in to load wallet sets');
       return;
     }
@@ -168,7 +171,7 @@ export default function Home() {
 
   // Delete a saved wallet set via API
   const handleDeleteWalletSet = async (setName: string) => {
-    if (!session) return;
+    if (!user) return;
 
     try {
       const response = await fetch('/api/wallet-sets', {
@@ -440,22 +443,25 @@ export default function Home() {
 
           <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0">
             {/* User Info / Login Button */}
-            {status === 'loading' ? (
+            {authLoading ? (
               <div className="px-4 py-2" style={{ color: 'var(--on-surface-variant)' }}>
                 Loading...
               </div>
-            ) : session ? (
+            ) : user ? (
               <div className="flex items-center gap-2 sm:gap-3">
                 <div className="hidden md:block text-right">
                   <p className="text-sm font-medium" style={{ color: 'var(--on-surface)' }}>
-                    {session.user?.name || session.user?.email}
+                    {user.name || user.email}
                   </p>
                   <p className="text-xs" style={{ color: 'var(--on-surface-variant)' }}>
-                    {session.user?.email}
+                    {user.email}
                   </p>
                 </div>
                 <button
-                  onClick={() => signOut()}
+                  onClick={async () => {
+                    await signOut();
+                    router.push('/auth/login');
+                  }}
                   className="btn-secondary text-xs sm:text-sm whitespace-nowrap"
                 >
                   Sign Out
@@ -463,7 +469,7 @@ export default function Home() {
               </div>
             ) : (
               <button
-                onClick={() => signIn()}
+                onClick={() => router.push('/auth/login')}
                 className="btn-primary text-xs sm:text-sm whitespace-nowrap"
               >
                 Sign In
