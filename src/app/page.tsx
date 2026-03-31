@@ -64,13 +64,14 @@ export default function Home() {
   }, [user]);
 
   // Fetch exchange rates on mount
+  // Fetch exchange rates when report date changes
   useEffect(() => {
     const loadExchangeRates = async () => {
-      const rates = await fetchExchangeRates();
+      const rates = await fetchExchangeRates(reportDate);
       setExchangeRates(rates);
     };
     loadExchangeRates();
-  }, []);
+  }, [reportDate]);
 
   const toggleTheme = () => {
     const newTheme = theme === 'light' ? 'dark' : 'light';

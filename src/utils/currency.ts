@@ -22,14 +22,47 @@ export const CURRENCIES: Currency[] = [
   { code: 'KRW', symbol: '₩', name: 'South Korean Won' },
 ];
 
+// Cache for historical exchange rates: Map<date_string, rates>
+const exchangeRateCache = new Map<string, Record<string, number>>();
+
 /**
- * Fetch exchange rates from USD to other currencies
+ * Fetch historical exchange rates from USD to other currencies for a specific date
+ * Uses frankfurter.app API which provides free historical rates back to 1999
+ * @param date - Date string in YYYY-MM-DD format
  */
-export async function fetchExchangeRates(): Promise<Record<string, number>> {
+export async function fetchExchangeRates(date?: string): Promise<Record<string, number>> {
   try {
-    const response = await fetch('https://api.exchangerate-api.com/v4/latest/USD');
+    // If no date provided, use current rates
+    if (!date) {
+      const response = await fetch('https://api.frankfurter.app/latest?from=USD');
+      const data = await response.json();
+      return data.rates;
+    }
+
+    // Check cache first
+    const cacheKey = date;
+    const cachedRates = exchangeRateCache.get(cacheKey);
+    if (cachedRates) {
+      console.log(`Using cached exchange rates for ${date}`);
+      return cachedRates;
+    }
+
+    // Fetch historical rates from frankfurter.app (free, no API key needed)
+    // Supports dates from 1999-01-04 onwards
+    const response = await fetch(`https://api.frankfurter.app/${date}?from=USD`);
+
+    if (!response.ok) {
+      throw new Error(`Failed to fetch rates: ${response.status}`);
+    }
+
     const data = await response.json();
-    return data.rates;
+    const rates = data.rates;
+
+    // Cache the rates
+    exchangeRateCache.set(cacheKey, rates);
+    console.log(`Cached exchange rates for ${date}:`, rates);
+
+    return rates;
   } catch (error) {
     console.error('Failed to fetch exchange rates:', error);
     // Return default rates (1:1) if fetch fails
