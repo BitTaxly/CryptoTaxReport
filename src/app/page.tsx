@@ -63,7 +63,7 @@ export default function Home() {
     }
   }, [user]);
 
-  // Fetch exchange rates on mount
+  // Load initial exchange rates (fallback - will be replaced by API response)
   useEffect(() => {
     const loadExchangeRates = async () => {
       const rates = await fetchExchangeRates();
@@ -272,6 +272,11 @@ export default function Home() {
           }
 
           reports.push({ date, data: data.data });
+
+          // Use exchange rates from the first report (main date)
+          if (reports.length === 1 && data.data.exchangeRates) {
+            setExchangeRates(data.data.exchangeRates);
+          }
         }
 
         setComparisonReports(reports);
@@ -293,6 +298,11 @@ export default function Home() {
 
         if (!response.ok || !data.success) {
           throw new Error(data.error || 'Analysis failed');
+        }
+
+        // Extract exchange rates from API response if available
+        if (data.data.exchangeRates) {
+          setExchangeRates(data.data.exchangeRates);
         }
 
         setReportData(data.data);

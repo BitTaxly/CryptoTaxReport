@@ -3,6 +3,7 @@ import { analyzeWalletsSchema } from '@/utils/validators';
 import { analyzeWallets } from '@/services/blockchainDetector';
 import { fetchMultipleWalletHoldings } from '@/services/balanceFetcher';
 import { fetchTokenPricesInBatches } from '@/services/pricingService';
+import { fetchHistoricalExchangeRates } from '@/services/exchangeRateService';
 import {
   enrichTokenWithPrice,
   enrichDeFiPositionWithPrice,
@@ -249,7 +250,11 @@ export async function POST(
       };
     });
 
-    // Step 6: Generate final report
+    // Step 6: Fetch historical exchange rates for the report date
+    console.log('Step 6: Fetching historical exchange rates...');
+    const exchangeRates = await fetchHistoricalExchangeRates(date);
+
+    // Step 7: Generate final report
     const taxReport: TaxReport = {
       wallets: walletReports,
       grandTotal: calculateGrandTotal(walletReports),
@@ -262,7 +267,10 @@ export async function POST(
 
     return NextResponse.json({
       success: true,
-      data: taxReport,
+      data: {
+        ...taxReport,
+        exchangeRates, // Include exchange rates in the response
+      },
     });
   } catch (error) {
     console.error('Error analyzing wallets:', error);
