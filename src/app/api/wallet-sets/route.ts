@@ -7,6 +7,8 @@ import {
   deleteUserWalletSet,
 } from '@/lib/userStore';
 
+export const dynamic = 'force-dynamic';
+
 /**
  * GET /api/wallet-sets
  * Get all wallet sets for the authenticated user

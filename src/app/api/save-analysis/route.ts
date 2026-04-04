@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabase';
 import { TaxReport } from '@/types';
 
+export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
 
 /**

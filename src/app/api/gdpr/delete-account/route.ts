@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
 import { checkRateLimit, getClientIdentifier, RATE_LIMITS } from '@/lib/rateLimiter';
 
+export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
 
 /**

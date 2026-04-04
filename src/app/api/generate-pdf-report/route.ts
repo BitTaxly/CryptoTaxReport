@@ -3,6 +3,8 @@ import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { TaxReport } from '@/types';
 
+export const dynamic = 'force-dynamic';
+
 export async function POST(request: Request) {
   try {
     const body = await request.json();

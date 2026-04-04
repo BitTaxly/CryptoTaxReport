@@ -7,6 +7,7 @@ import {
 } from '@/services/reportGenerator';
 import { GenerateReportRequest, TaxReport } from '@/types';
 
+export const dynamic = 'force-dynamic';
 export const maxDuration = 30;
 
 /**

@@ -22,6 +22,7 @@ import {
 import { MAX_WALLETS } from '@/utils/constants';
 import { checkRateLimit, getClientIdentifier, RATE_LIMITS } from '@/lib/rateLimiter';
 
+export const dynamic = 'force-dynamic';
 export const maxDuration = 60; // 60 seconds timeout
 
 /**
