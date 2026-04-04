@@ -226,23 +226,41 @@ export async function POST(request: Request) {
       }
     }
 
-    // Add footer with timestamp
+    // Add footer with timestamp and branding
     const pageCount = doc.getNumberOfPages();
+    const pageHeight = doc.internal.pageSize.getHeight();
+
     for (let i = 1; i <= pageCount; i++) {
       doc.setPage(i);
+
+      // Timestamp and page number (center)
       doc.setFontSize(8);
       doc.setTextColor(150, 150, 150);
       doc.text(
         `Generated on ${new Date().toLocaleString('en-US')} | Page ${i} of ${pageCount}`,
         pageWidth / 2,
-        doc.internal.pageSize.getHeight() - 10,
+        pageHeight - 10,
         { align: 'center' }
       );
+
+      // Professional disclaimer (center, smaller)
+      doc.setFontSize(7);
+      doc.setTextColor(170, 170, 170);
       doc.text(
-        'Powered by CoinGecko API',
+        'This report is generated for informational purposes. Consult a tax professional for official filings.',
         pageWidth / 2,
-        doc.internal.pageSize.getHeight() - 6,
+        pageHeight - 6,
         { align: 'center' }
+      );
+
+      // BitTaxly branding (bottom right corner, subtle)
+      doc.setFontSize(7);
+      doc.setTextColor(180, 180, 180);
+      doc.text(
+        'Created with BitTaxly',
+        pageWidth - 14,
+        pageHeight - 6,
+        { align: 'right' }
       );
     }
 

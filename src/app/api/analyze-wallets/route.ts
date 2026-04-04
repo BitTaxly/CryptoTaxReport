@@ -104,7 +104,10 @@ export async function POST(
       blockchain: w.blockchain,
     }));
 
-    const holdings = await fetchMultipleWalletHoldings(walletsWithBlockchains);
+    // Parse the target date for historical balance fetching
+    const reportDate = new Date(date);
+
+    const holdings = await fetchMultipleWalletHoldings(walletsWithBlockchains, reportDate);
 
     // Check for errors
     const walletsWithErrors = holdings.filter(h => h.error);
@@ -203,8 +206,6 @@ export async function POST(
 
     // Step 4: Fetch historical prices for filtered tokens
     console.log(`Step 4: Fetching prices for ${filteredCount} tokens...`);
-    const reportDate = new Date(date);
-
     const prices = await fetchTokenPricesInBatches(filteredTokens, reportDate, 10, 3000);
 
     // Create price map for quick lookup

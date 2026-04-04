@@ -7,6 +7,9 @@ import {
   WalletHoldings,
   BlockchainAPIError,
 } from '@/types';
+import { HistoricalBalanceFetcher } from './historicalBalanceFetcher';
+import { HistoricalBitcoinFetcher } from './historicalBitcoinFetcher';
+import { HistoricalEthereumFetcher } from './historicalEthereumFetcher';
 
 // Cache for Solana token metadata
 let tokenListCache: Map<string, { symbol: string; name: string }> | null = null;
@@ -65,10 +68,22 @@ async function getSolanaTokenMetadata(mintAddress: string): Promise<{ symbol: st
 /**
  * Fetches token balances for a Solana wallet
  * Uses Solana RPC methods to get SPL token accounts
+ * If targetDate is provided, fetches historical balances by parsing transactions
  */
 export const fetchSolanaBalances = async (
-  walletAddress: string
+  walletAddress: string,
+  targetDate?: Date
 ): Promise<TokenBalance[]> => {
+  // If a target date is provided, use historical balance fetching
+  if (targetDate) {
+    console.log(`[Solana] Using historical balance fetching for date: ${targetDate.toISOString()}`);
+    const historicalFetcher = new HistoricalBalanceFetcher();
+    const result = await historicalFetcher.getHistoricalBalances(walletAddress, targetDate);
+    console.log(`[Solana] Historical fetch complete: ${result.balances.length} tokens, ${result.transactionsProcessed} transactions processed`);
+    return result.balances;
+  }
+
+  // Otherwise, use current balance fetching (original logic)
   try {
     const rpcEndpoint =
       process.env.SOLANA_RPC_ENDPOINT || 'https://api.mainnet-beta.solana.com';
@@ -198,10 +213,22 @@ const fetchERC20BalanceWithRetry = async (
 /**
  * Fetches token balances for an Ethereum wallet
  * Uses Ethers.js and ERC20 standard with QuikNode RPC
+ * If targetDate is provided, fetches historical balances at a specific block
  */
 export const fetchEthereumBalances = async (
-  walletAddress: string
+  walletAddress: string,
+  targetDate?: Date
 ): Promise<TokenBalance[]> => {
+  // If a target date is provided, use historical balance fetching
+  if (targetDate) {
+    console.log(`[Ethereum] Using historical balance fetching for date: ${targetDate.toISOString()}`);
+    const historicalFetcher = new HistoricalEthereumFetcher();
+    const result = await historicalFetcher.getHistoricalBalances(walletAddress, targetDate);
+    console.log(`[Ethereum] Historical fetch complete: ${result.balances.length} tokens`);
+    return result.balances;
+  }
+
+  // Otherwise, use current balance fetching (original logic)
   try {
     const rpcEndpoint = process.env.ETHEREUM_RPC_ENDPOINT || 'https://eth.public-rpc.com';
     const provider = new ethers.JsonRpcProvider(rpcEndpoint);
@@ -329,10 +356,22 @@ export const fetchEthereumBalancesWithAlchemy = async (
 
 /**
  * Fetches Bitcoin balance using Blockchain.info API
+ * If targetDate is provided, fetches historical balance by analyzing transaction history
  */
 export const fetchBitcoinBalances = async (
-  walletAddress: string
+  walletAddress: string,
+  targetDate?: Date
 ): Promise<TokenBalance[]> => {
+  // If a target date is provided, use historical balance fetching
+  if (targetDate) {
+    console.log(`[Bitcoin] Using historical balance fetching for date: ${targetDate.toISOString()}`);
+    const historicalFetcher = new HistoricalBitcoinFetcher();
+    const result = await historicalFetcher.getHistoricalBalance(walletAddress, targetDate);
+    console.log(`[Bitcoin] Historical fetch complete: ${result.balances.length} tokens, ${result.transactionsProcessed} transactions processed`);
+    return result.balances;
+  }
+
+  // Otherwise, use current balance fetching (original logic)
   try {
     // Using Blockchain.info free API
     const response = await axios.get(
@@ -371,16 +410,16 @@ export const fetchBitcoinBalances = async (
  */
 export const fetchBalances = async (
   walletAddress: string,
-  blockchain: BlockchainType
+  blockchain: BlockchainType,
+  targetDate?: Date
 ): Promise<TokenBalance[]> => {
   switch (blockchain) {
     case 'solana':
-      return fetchSolanaBalances(walletAddress);
+      return fetchSolanaBalances(walletAddress, targetDate);
     case 'ethereum':
-      // Use QuikNode RPC with ethers.js (no Alchemy required)
-      return fetchEthereumBalances(walletAddress);
+      return fetchEthereumBalances(walletAddress, targetDate);
     case 'bitcoin':
-      return fetchBitcoinBalances(walletAddress);
+      return fetchBitcoinBalances(walletAddress, targetDate);
     default:
       throw new BlockchainAPIError(
         `Unsupported blockchain: ${blockchain}`,
@@ -394,10 +433,11 @@ export const fetchBalances = async (
  */
 export const fetchWalletHoldings = async (
   walletAddress: string,
-  blockchain: BlockchainType
+  blockchain: BlockchainType,
+  targetDate?: Date
 ): Promise<WalletHoldings> => {
   try {
-    const tokens = await fetchBalances(walletAddress, blockchain);
+    const tokens = await fetchBalances(walletAddress, blockchain, targetDate);
 
     return {
       walletAddress,
@@ -420,10 +460,11 @@ export const fetchWalletHoldings = async (
  * Fetches holdings for multiple wallets in parallel
  */
 export const fetchMultipleWalletHoldings = async (
-  wallets: Array<{ address: string; blockchain: BlockchainType }>
+  wallets: Array<{ address: string; blockchain: BlockchainType }>,
+  targetDate?: Date
 ): Promise<WalletHoldings[]> => {
   const promises = wallets.map(wallet =>
-    fetchWalletHoldings(wallet.address, wallet.blockchain)
+    fetchWalletHoldings(wallet.address, wallet.blockchain, targetDate)
   );
 
   return Promise.all(promises);

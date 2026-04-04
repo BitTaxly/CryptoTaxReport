@@ -45,6 +45,28 @@ const TOKEN_ID_MAPPINGS: Record<string, string> = {
   'bitcoin-native': 'bitcoin',
 };
 
+// CoinGecko ID to Binance trading pair mappings
+const COINGECKO_TO_BINANCE: Record<string, string> = {
+  'solana': 'SOLUSDT',
+  'bitcoin': 'BTCUSDT',
+  'ethereum': 'ETHUSDT',
+  'usd-coin': 'USDCUSDT',
+  'tether': 'USDTUSDT',
+  'binancecoin': 'BNBUSDT',
+  'cardano': 'ADAUSDT',
+  'dogecoin': 'DOGEUSDT',
+  'matic-network': 'MATICUSDT',
+  'polkadot': 'DOTUSDT',
+  'wrapped-bitcoin': 'WBTCUSDT',
+  'chainlink': 'LINKUSDT',
+  'uniswap': 'UNIUSDT',
+  'avalanche-2': 'AVAXUSDT',
+  'shiba-inu': 'SHIBUSDT',
+  'msol': 'MSOLUSDT',
+  'bonk': 'BONKUSDT',
+  'jito-staked-sol': 'JITOSOL',
+};
+
 // Symbol to CoinGecko ID mappings for common tokens
 const SYMBOL_TO_COINGECKO: Record<string, string> = {
   'SOL': 'solana',
@@ -66,6 +88,18 @@ const SYMBOL_TO_COINGECKO: Record<string, string> = {
   'MATIC': 'matic-network',
   'UNI': 'uniswap',
   'BTC': 'bitcoin',
+};
+
+// CoinCap uses similar IDs but we need to handle some differences
+const COINGECKO_TO_COINCAP: Record<string, string> = {
+  'usd-coin': 'usd-coin',
+  'tether': 'tether',
+  'wrapped-bitcoin': 'wrapped-bitcoin',
+  'lido-staked-sol': 'lido-staked-sol',
+  'jito-staked-sol': 'jito-staked-sol',
+  'jito-governance-token': 'jito',
+  'matic-network': 'polygon',
+  // Most others are the same (bitcoin, ethereum, solana, etc.)
 };
 
 /**
@@ -100,13 +134,169 @@ const getCoinGeckoId = (
 };
 
 /**
- * Fetches historical price from CoinGecko with caching
- * Free tier: 10-30 calls/minute
+ * Converts CoinGecko token ID to CoinCap token ID
+ */
+const getCoinCapId = (coinGeckoId: string): string => {
+  return COINGECKO_TO_COINCAP[coinGeckoId] || coinGeckoId;
+};
+
+/**
+ * Fetches historical price from Binance API (free, unlimited, full history)
+ * This is now the PRIMARY data source
+ */
+export const fetchHistoricalPriceFromBinance = async (
+  tokenId: string,
+  date: Date
+): Promise<number> => {
+  try {
+    const formattedDate = format(date, 'dd-MM-yyyy');
+
+    // Check cache first
+    const cacheKey = getCacheKey(`binance_${tokenId}`, formattedDate);
+    const cachedPrice = priceCache.get(cacheKey);
+    if (cachedPrice !== undefined) {
+      console.log(`[Binance] Cache hit for ${tokenId} on ${formattedDate}: ${cachedPrice}`);
+      return cachedPrice;
+    }
+
+    // Get Binance trading pair
+    const binanceSymbol = COINGECKO_TO_BINANCE[tokenId];
+    if (!binanceSymbol) {
+      throw new Error(`No Binance mapping for ${tokenId}`);
+    }
+
+    // Convert date to Unix timestamps (milliseconds)
+    const startOfDay = new Date(date);
+    startOfDay.setUTCHours(0, 0, 0, 0);
+    const endOfDay = new Date(date);
+    endOfDay.setUTCHours(23, 59, 59, 999);
+
+    const url = 'https://api.binance.com/api/v3/klines';
+
+    console.log(`[Binance] Fetching ${binanceSymbol} for ${formattedDate}`);
+
+    const response = await axios.get(url, {
+      params: {
+        symbol: binanceSymbol,
+        interval: '1d',
+        startTime: startOfDay.getTime(),
+        endTime: endOfDay.getTime(),
+        limit: 1,
+      },
+      timeout: 10000,
+    });
+
+    const data = response.data;
+    if (!data || !Array.isArray(data) || data.length === 0) {
+      throw new Error(`No price data available from Binance for ${binanceSymbol}`);
+    }
+
+    // Binance kline format: [openTime, open, high, low, close, volume, closeTime, ...]
+    // We use the close price (index 4)
+    const closePrice = parseFloat(data[0][4]);
+
+    if (isNaN(closePrice)) {
+      throw new Error(`Invalid price data from Binance for ${binanceSymbol}`);
+    }
+
+    // Cache the price
+    priceCache.set(cacheKey, closePrice);
+    console.log(`[Binance] Cached price for ${tokenId} on ${formattedDate}: $${closePrice}`);
+
+    return closePrice;
+  } catch (error) {
+    console.error(`[Binance] Error fetching ${tokenId}:`, error instanceof Error ? error.message : error);
+    throw new PricingAPIError(
+      `Failed to fetch price from Binance for ${tokenId}: ${error instanceof Error ? error.message : 'Unknown error'}`
+    );
+  }
+};
+
+/**
+ * Fetches historical price from CoinCap API (free, 500 req/min)
+ * Fallback for when CoinGecko rate limits are exceeded
+ */
+export const fetchHistoricalPriceFromCoinCap = async (
+  tokenId: string,
+  date: Date
+): Promise<number> => {
+  try {
+    const formattedDate = format(date, 'dd-MM-yyyy');
+    const cacheKey = getCacheKey(`coincap_${tokenId}`, formattedDate);
+
+    // Check cache first
+    const cachedPrice = priceCache.get(cacheKey);
+    if (cachedPrice !== undefined) {
+      console.log(`[CoinCap] Cache hit for ${tokenId} on ${formattedDate}: $${cachedPrice}`);
+      return cachedPrice;
+    }
+
+    // Convert token ID for CoinCap
+    const coinCapId = getCoinCapId(tokenId);
+
+    // CoinCap requires timestamps in milliseconds
+    const startOfDay = new Date(date);
+    startOfDay.setUTCHours(0, 0, 0, 0);
+    const endOfDay = new Date(date);
+    endOfDay.setUTCHours(23, 59, 59, 999);
+
+    const url = `https://api.coincap.io/v2/assets/${coinCapId}/history`;
+    const response = await axios.get(url, {
+      params: {
+        interval: 'd1',
+        start: startOfDay.getTime(),
+        end: endOfDay.getTime(),
+      },
+      timeout: 15000,
+    });
+
+    const data = response.data?.data;
+    if (!data || !Array.isArray(data) || data.length === 0) {
+      throw new Error(`No price data available for ${tokenId} on ${formattedDate}`);
+    }
+
+    // Get the price from the data point (CoinCap returns priceUsd as string)
+    const priceUsd = parseFloat(data[0].priceUsd);
+    if (isNaN(priceUsd)) {
+      throw new Error(`Invalid price data for ${tokenId}`);
+    }
+
+    // Cache the price
+    priceCache.set(cacheKey, priceUsd);
+    console.log(`[CoinCap] Cached price for ${tokenId} on ${formattedDate}: $${priceUsd}`);
+
+    return priceUsd;
+  } catch (error) {
+    console.error(`[CoinCap] Error fetching ${tokenId}:`, error instanceof Error ? error.message : error);
+
+    if (axios.isAxiosError(error)) {
+      if (error.response?.status === 404) {
+        throw new PricingAPIError(`Token ${tokenId} not found on CoinCap`);
+      }
+    }
+
+    throw new PricingAPIError(
+      `Failed to fetch price from CoinCap for ${tokenId}: ${error instanceof Error ? error.message : 'Unknown error'}`
+    );
+  }
+};
+
+/**
+ * Fetches historical price - now uses Binance first (free, unlimited)
+ * Falls back to CoinGecko, then CoinCap if needed
  */
 export const fetchHistoricalPriceFromCoinGecko = async (
   tokenId: string,
   date: Date
 ): Promise<number> => {
+  // Try Binance first (free, no API key, full history)
+  try {
+    return await fetchHistoricalPriceFromBinance(tokenId, date);
+  } catch (binanceError) {
+    console.log(`[Binance] Not available for ${tokenId}, trying CoinGecko...`);
+  }
+
+  // Fallback to CoinGecko
   try {
     const formattedDate = format(date, 'dd-MM-yyyy'); // CoinGecko format
 
@@ -120,9 +310,8 @@ export const fetchHistoricalPriceFromCoinGecko = async (
 
     const apiKey = process.env.COINGECKO_API_KEY;
 
-    const baseUrl = apiKey
-      ? 'https://pro-api.coingecko.com/api/v3'
-      : 'https://api.coingecko.com/api/v3';
+    // Always use public API endpoint - Demo keys must use api.coingecko.com
+    const baseUrl = 'https://api.coingecko.com/api/v3';
 
     const url = `${baseUrl}/coins/${tokenId}/history`;
 
@@ -133,7 +322,7 @@ export const fetchHistoricalPriceFromCoinGecko = async (
       },
       headers: apiKey
         ? {
-            'x-cg-pro-api-key': apiKey,
+            'x-cg-demo-api-key': apiKey,
           }
         : {},
       timeout: 15000,
@@ -151,18 +340,24 @@ export const fetchHistoricalPriceFromCoinGecko = async (
 
     return price;
   } catch (error) {
-    if (axios.isAxiosError(error)) {
-      if (error.response?.status === 429) {
-        throw new PricingAPIError('Rate limit exceeded. Please try again later.');
-      }
-      if (error.response?.status === 404) {
-        throw new PricingAPIError(`Token ${tokenId} not found on CoinGecko`);
-      }
-    }
+    console.error(`[CoinGecko] Detailed error for ${tokenId}:`, {
+      message: error instanceof Error ? error.message : 'Unknown error',
+      status: axios.isAxiosError(error) ? error.response?.status : 'N/A',
+      statusText: axios.isAxiosError(error) ? error.response?.statusText : 'N/A',
+      data: axios.isAxiosError(error) ? error.response?.data : 'N/A',
+      url: axios.isAxiosError(error) ? error.config?.url : 'N/A',
+      hasApiKey: !!process.env.COINGECKO_API_KEY,
+    });
 
-    throw new PricingAPIError(
-      `Failed to fetch price for ${tokenId}: ${error instanceof Error ? error.message : 'Unknown error'}`
-    );
+    // For any CoinGecko error, try CoinCap as last resort
+    console.log(`[CoinGecko] Error for ${tokenId}, trying CoinCap as last resort...`);
+    try {
+      return await fetchHistoricalPriceFromCoinCap(tokenId, date);
+    } catch (coinCapError) {
+      throw new PricingAPIError(
+        `Failed to fetch price for ${tokenId} from all sources (Binance, CoinGecko, CoinCap)`
+      );
+    }
   }
 };
 

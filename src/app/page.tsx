@@ -25,9 +25,20 @@ export default function Home() {
   const toast = useToast();
   const [theme, setTheme] = useState<'light' | 'dark'>('light');
   const [wallets, setWallets] = useState<string[]>(['']);
+  // Get available years (only completed years)
+  const currentYear = new Date().getFullYear();
+  const availableYears = [currentYear - 2, currentYear - 1]; // Show last 2 completed years
+  const lastCompletedYear = currentYear - 1;
+
   const [reportDate, setReportDate] = useState<string>(
-    getDefaultReportDate().toISOString().split('T')[0]
+    () => {
+      // Default to December 31st of last completed year
+      const lastYearEnd = new Date(lastCompletedYear, 11, 31); // Month is 0-indexed
+      return lastYearEnd.toISOString().split('T')[0];
+    }
   );
+  const [dateMode, setDateMode] = useState<'preset' | 'custom'>('preset');
+  const [selectedYear, setSelectedYear] = useState<number>(lastCompletedYear); // Default to last year
   const [comparisonMode, setComparisonMode] = useState(false);
   const [comparisonDates, setComparisonDates] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
@@ -56,6 +67,21 @@ export default function Home() {
     }
   }, []);
 
+  // Load wallets from localStorage after mount (avoids hydration error)
+  useEffect(() => {
+    const saved = localStorage.getItem('wallets');
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          setWallets(parsed);
+        }
+      } catch (e) {
+        console.error('Failed to parse saved wallets', e);
+      }
+    }
+  }, []);
+
   // Load wallet sets from API when user is authenticated
   useEffect(() => {
     if (user) {
@@ -71,6 +97,16 @@ export default function Home() {
     };
     loadExchangeRates();
   }, []);
+
+  // Save wallets to localStorage whenever they change
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const nonEmptyWallets = wallets.filter(w => w.trim() !== '');
+      if (nonEmptyWallets.length > 0) {
+        localStorage.setItem('wallets', JSON.stringify(wallets));
+      }
+    }
+  }, [wallets]);
 
   const toggleTheme = () => {
     const newTheme = theme === 'light' ? 'dark' : 'light';
@@ -227,6 +263,19 @@ export default function Home() {
     const newDates = [...comparisonDates];
     newDates[index] = value;
     setComparisonDates(newDates);
+  };
+
+  const handleYearSelect = (year: number) => {
+    setSelectedYear(year);
+    // Set to December 31st of selected year
+    const endOfYear = new Date(year, 11, 31); // Month is 0-indexed, so 11 = December
+    setReportDate(endOfYear.toISOString().split('T')[0]);
+    setDateMode('preset');
+  };
+
+  const handleCustomDateChange = (value: string) => {
+    setReportDate(value);
+    setDateMode('custom');
   };
 
   const handleAnalyze = async () => {
@@ -507,6 +556,30 @@ export default function Home() {
           </div>
         </div>
 
+        {/* Alpha Version Banner */}
+        <div className="card mb-4 p-4" style={{
+          background: 'linear-gradient(135deg, rgba(99, 102, 241, 0.1) 0%, rgba(139, 92, 246, 0.1) 100%)',
+          borderLeft: '4px solid var(--primary)'
+        }}>
+          <div className="flex items-start gap-3">
+            <div className="flex-shrink-0">
+              <svg className="w-5 h-5" style={{ color: 'var(--primary)' }} fill="currentColor" viewBox="0 0 20 20">
+                <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+              </svg>
+            </div>
+            <div className="flex-1">
+              <h3 className="text-sm font-semibold mb-1" style={{ color: 'var(--on-surface)' }}>
+                Alpha Version
+              </h3>
+              <p className="text-xs" style={{ color: 'var(--on-surface-variant)' }}>
+                <strong>Full historical balance support</strong> for Bitcoin, Ethereum, and Solana with accurate portfolio valuation at any date.
+                <br />
+                <strong>Note:</strong> Wallets with many transactions may take up to 2 minutes to process.
+              </p>
+            </div>
+          </div>
+        </div>
+
         {/* Main Card */}
         <div className="card p-6 md:p-8 mb-6">
           {/* Wallet Inputs */}
@@ -708,42 +781,121 @@ export default function Home() {
             </div>
 
             {/* Primary Date */}
-            <div className="flex gap-3 mb-3">
-              <div className={minValueFilterEnabled ? 'flex-1' : 'w-full'}>
-                <input
-                  type="date"
-                  value={reportDate}
-                  onChange={e => setReportDate(e.target.value)}
-                  max={new Date().toISOString().split('T')[0]}
-                  className="input-field w-full text-sm md:text-base"
-                  placeholder="Primary date"
-                />
+            <div className="space-y-3 mb-3">
+              {/* Year Presets */}
+              <div className="flex flex-wrap gap-2">
+                {availableYears.map(year => (
+                  <button
+                    key={year}
+                    onClick={() => handleYearSelect(year)}
+                    className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                      dateMode === 'preset' && selectedYear === year
+                        ? 'btn-primary'
+                        : 'btn-secondary'
+                    }`}
+                  >
+                    End of {year}
+                  </button>
+                ))}
+                <button
+                  onClick={() => setDateMode('custom')}
+                  className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                    dateMode === 'custom'
+                      ? 'btn-primary'
+                      : 'btn-secondary'
+                  }`}
+                >
+                  Custom date
+                </button>
               </div>
-              {minValueFilterEnabled && (
-                <div className="flex-1 relative">
-                  <span className="absolute left-5 top-1/2 -translate-y-1/2 text-sm font-medium" style={{ color: 'var(--on-surface)' }}>
-                    $
-                  </span>
-                  <Tooltip content="Tokens and DeFi positions with a total value below this amount will be hidden from the report.">
-                    <input
-                      type="text"
-                      inputMode="decimal"
-                      value={minValueThreshold}
-                      onChange={e => {
-                        const value = e.target.value.replace(/[^0-9.]/g, '');
-                        if (value === '' || value === '.') {
-                          setMinValueThreshold(0);
-                        } else {
-                          const parsed = parseFloat(value);
-                          if (!isNaN(parsed)) {
-                            setMinValueThreshold(parsed);
+
+              {/* Custom Date Input (shown when custom mode is selected) */}
+              {dateMode === 'custom' && (
+                <div className="flex gap-3">
+                  <div className={minValueFilterEnabled ? 'flex-1' : 'w-full'}>
+                    <div className="relative">
+                      <div className="absolute left-4 top-1/2 -translate-y-1/2 pointer-events-none z-10">
+                        <svg className="w-5 h-5" style={{ color: 'var(--primary)' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                        </svg>
+                      </div>
+                      <input
+                        type="date"
+                        value={reportDate}
+                        onChange={e => handleCustomDateChange(e.target.value)}
+                        max={new Date().toISOString().split('T')[0]}
+                        className="input-field w-full text-sm md:text-base pl-12"
+                        style={{
+                          colorScheme: 'dark',
+                        }}
+                      />
+                    </div>
+                  </div>
+                  {minValueFilterEnabled && (
+                    <div className="flex-1 relative">
+                      <span className="absolute left-5 top-1/2 -translate-y-1/2 text-sm font-medium" style={{ color: 'var(--on-surface)' }}>
+                        $
+                      </span>
+                      <Tooltip content="Tokens and DeFi positions with a total value below this amount will be hidden from the report.">
+                        <input
+                          type="text"
+                          inputMode="decimal"
+                          value={minValueThreshold}
+                          onChange={e => {
+                            const value = e.target.value.replace(/[^0-9.]/g, '');
+                            if (value === '' || value === '.') {
+                              setMinValueThreshold(0);
+                            } else {
+                              const parsed = parseFloat(value);
+                              if (!isNaN(parsed)) {
+                                setMinValueThreshold(parsed);
+                              }
+                            }
+                          }}
+                          className="input-field w-full pl-8 text-sm md:text-base"
+                          placeholder="Min value (USD)"
+                        />
+                      </Tooltip>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Min Value Filter (shown in preset mode) */}
+              {dateMode === 'preset' && minValueFilterEnabled && (
+                <div className="flex gap-3">
+                  <div className="flex-1 relative">
+                    <span className="absolute left-5 top-1/2 -translate-y-1/2 text-sm font-medium" style={{ color: 'var(--on-surface)' }}>
+                      $
+                    </span>
+                    <Tooltip content="Tokens and DeFi positions with a total value below this amount will be hidden from the report.">
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        value={minValueThreshold}
+                        onChange={e => {
+                          const value = e.target.value.replace(/[^0-9.]/g, '');
+                          if (value === '' || value === '.') {
+                            setMinValueThreshold(0);
+                          } else {
+                            const parsed = parseFloat(value);
+                            if (!isNaN(parsed)) {
+                              setMinValueThreshold(parsed);
+                            }
                           }
-                        }
-                      }}
-                      className="input-field w-full pl-8 text-sm md:text-base"
-                      placeholder="Min value (USD)"
-                    />
-                  </Tooltip>
+                        }}
+                        className="input-field w-full pl-8 text-sm md:text-base"
+                        placeholder="Min value (USD)"
+                      />
+                    </Tooltip>
+                  </div>
+                </div>
+              )}
+
+              {/* Selected Date Display */}
+              {dateMode === 'preset' && (
+                <div className="text-sm" style={{ color: 'var(--on-surface-variant)' }}>
+                  Report date: {new Date(reportDate).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
                 </div>
               )}
             </div>
@@ -753,14 +905,24 @@ export default function Home() {
               <div className="space-y-3">
                 {comparisonDates.map((date, index) => (
                   <div key={index} className="flex gap-3 items-center">
-                    <input
-                      type="date"
-                      value={date}
-                      onChange={e => handleComparisonDateChange(index, e.target.value)}
-                      max={new Date().toISOString().split('T')[0]}
-                      className="input-field flex-1 text-sm md:text-base"
-                      placeholder={`Comparison date ${index + 1}`}
-                    />
+                    <div className="relative flex-1">
+                      <div className="absolute left-4 top-1/2 -translate-y-1/2 pointer-events-none z-10">
+                        <svg className="w-5 h-5" style={{ color: 'var(--primary)' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                        </svg>
+                      </div>
+                      <input
+                        type="date"
+                        value={date}
+                        onChange={e => handleComparisonDateChange(index, e.target.value)}
+                        max={new Date().toISOString().split('T')[0]}
+                        className="input-field w-full text-sm md:text-base pl-12"
+                        style={{
+                          colorScheme: 'dark',
+                        }}
+                        placeholder={`Comparison date ${index + 1}`}
+                      />
+                    </div>
                     <button
                       onClick={() => handleRemoveComparisonDate(index)}
                       className="btn-icon flex-shrink-0"
@@ -1372,6 +1534,33 @@ export default function Home() {
           </div>
         )}
       </div>
+
+      {/* Footer */}
+      <footer className="mt-12 pt-6 pb-8 border-t" style={{ borderColor: 'var(--outline-variant)' }}>
+        <div className="max-w-4xl mx-auto px-4">
+          <div className="flex flex-col sm:flex-row justify-between items-center gap-4 text-sm" style={{ color: 'var(--on-surface-variant)' }}>
+            <div className="text-center sm:text-left">
+              © {new Date().getFullYear()} BitTaxly. All rights reserved.
+            </div>
+            <div className="flex gap-6">
+              <a
+                href="/privacy"
+                className="hover:underline transition-colors"
+                style={{ color: 'var(--primary)' }}
+              >
+                Privacy Policy
+              </a>
+              <a
+                href="/terms"
+                className="hover:underline transition-colors"
+                style={{ color: 'var(--primary)' }}
+              >
+                Terms of Service
+              </a>
+            </div>
+          </div>
+        </div>
+      </footer>
     </div>
     </>
   );

@@ -92,9 +92,14 @@ export default function ProgressIndicator({
           ))}
         </div>
 
-        <p className="text-xs text-center opacity-50">
-          This may take a few moments depending on the number of tokens...
-        </p>
+        <div className="space-y-1">
+          <p className="text-xs text-center opacity-50">
+            This may take a few moments depending on the number of tokens...
+          </p>
+          <p className="text-xs text-center opacity-70 font-medium">
+            Large wallets with many transactions may take up to 2 minutes
+          </p>
+        </div>
       </div>
     </div>
   );
