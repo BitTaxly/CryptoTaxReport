@@ -283,3 +283,4 @@ For issues or questions:
 ## Disclaimer
 
 This tool is for informational purposes. Always consult a tax professional for tax advice. Historical price data may not be 100% accurate.
+# BitTaxly deployed
