@@ -316,6 +316,10 @@ export default function Home() {
             }),
           });
 
+          const contentType = response.headers.get('content-type') || '';
+          if (!contentType.includes('application/json')) {
+            throw new Error(`Server error (${response.status}) — the request may have timed out. Try a more recent date or fewer wallets.`);
+          }
           const data = await response.json();
 
           if (!response.ok || !data.success) {
@@ -345,6 +349,10 @@ export default function Home() {
           }),
         });
 
+        const contentType = response.headers.get('content-type') || '';
+        if (!contentType.includes('application/json')) {
+          throw new Error(`Server error (${response.status}) — the request may have timed out. Try a more recent date or fewer wallets.`);
+        }
         const data = await response.json();
 
         if (!response.ok || !data.success) {

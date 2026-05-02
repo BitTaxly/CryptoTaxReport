@@ -137,8 +137,8 @@ export class HistoricalBalanceFetcher {
 
         lastSignature = signatures[signatures.length - 1].signature;
 
-        // Delay to avoid rate limiting on public RPC endpoints
-        await new Promise(resolve => setTimeout(resolve, 500));
+        // Small delay to avoid rate limiting
+        await new Promise(resolve => setTimeout(resolve, 100));
       } catch (error) {
         console.error('[Historical] Error fetching signatures:', error);
         throw error;
@@ -159,8 +159,8 @@ export class HistoricalBalanceFetcher {
     const tokenAccounts = new Map<string, { balance: number; mint: string; owner: string }>();
     const walletAddress = walletPublicKey.toBase58();
 
-    // Process in batches of 50 to avoid overwhelming the RPC (reduced from 100)
-    const BATCH_SIZE = 50;
+    // Process in batches of 100
+    const BATCH_SIZE = 100;
     let processed = 0;
 
     for (let i = 0; i < signatures.length; i += BATCH_SIZE) {
@@ -195,8 +195,8 @@ export class HistoricalBalanceFetcher {
 
       console.log(`[Historical] Processed ${processed}/${signatures.length} transactions (${Math.floor((processed / signatures.length) * 100)}%)`);
 
-      // Longer delay between batches to avoid rate limiting on public RPC
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      // Small delay between batches to avoid rate limiting
+      await new Promise(resolve => setTimeout(resolve, 200));
     }
 
     return tokenAccounts;
