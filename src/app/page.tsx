@@ -1068,6 +1068,14 @@ export default function Home() {
                     </div>
                   </div>
 
+                  {/* DeFi leverage warning */}
+                  <div className="mb-4 p-3 rounded-lg border flex gap-2 items-start text-sm" style={{ borderColor: 'rgba(234,179,8,0.4)', backgroundColor: 'rgba(234,179,8,0.08)', color: 'var(--on-background)' }}>
+                    <span style={{ fontSize: '1rem', flexShrink: 0 }}>⚠️</span>
+                    <span className="opacity-80">
+                      <strong>DeFi &amp; Leverage Notice:</strong> Balances from leveraged positions (perpetuals, lending protocols, liquidity pools) may not be fully reflected. Tokens held as collateral inside a protocol will not appear in your wallet balance. Use these figures as an estimate and verify with your protocol dashboards for tax purposes.
+                    </span>
+                  </div>
+
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                     {displayData.wallets.map((wallet, index) => {
                       const gradientClass = wallet.blockchain === 'solana'
@@ -1155,6 +1163,14 @@ export default function Home() {
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
                 </svg>
               </div>
+            </div>
+
+            {/* DeFi leverage warning */}
+            <div className="mb-4 p-3 rounded-lg border flex gap-2 items-start text-sm" style={{ borderColor: 'rgba(234,179,8,0.4)', backgroundColor: 'rgba(234,179,8,0.08)', color: 'var(--on-background)' }}>
+              <span style={{ fontSize: '1rem', flexShrink: 0 }}>⚠️</span>
+              <span className="opacity-80">
+                <strong>DeFi &amp; Leverage Notice:</strong> Balances from leveraged positions (perpetuals, lending protocols, liquidity pools) may not be fully reflected. Tokens held as collateral inside a protocol will not appear in your wallet balance. Use these figures as an estimate and verify with your protocol dashboards for tax purposes.
+              </span>
             </div>
 
             <div className="space-y-4">

@@ -58,11 +58,16 @@ export class HistoricalBalanceFetcher {
     const signatures = await this.fetchAllSignaturesUntil(publicKey, targetTimestamp);
     console.log(`[Historical] Found ${signatures.length} transactions to process`);
 
+    // CRITICAL: Reverse to process chronologically (oldest first)
+    // Signatures come from RPC in descending order (newest first)
+    signatures.reverse();
+    console.log(`[Historical] Reversed to chronological order (oldest → newest)`);
+
     // Step 2: Process transactions in batches and build up token balances
     const tokenBalances = await this.processTransactions(publicKey, signatures);
 
-    // Step 3: Convert to TokenBalance array
-    const balances = await this.convertToTokenBalances(tokenBalances);
+    // Step 3: Convert to TokenBalance array (only wallet-owned accounts)
+    const balances = await this.convertToTokenBalances(tokenBalances, walletAddress);
 
     // Store in cache before returning
     cache.set(walletAddress, targetTimestamp, balances, signatures.length);
@@ -145,12 +150,13 @@ export class HistoricalBalanceFetcher {
 
   /**
    * Process all transactions and build up token balance changes
+   * Returns a map of token account addresses to their final balances
    */
   private async processTransactions(
     walletPublicKey: PublicKey,
     signatures: ConfirmedSignatureInfo[]
-  ): Promise<Map<string, number>> {
-    const tokenBalances = new Map<string, number>();
+  ): Promise<Map<string, { balance: number; mint: string; owner: string }>> {
+    const tokenAccounts = new Map<string, { balance: number; mint: string; owner: string }>();
     const walletAddress = walletPublicKey.toBase58();
 
     // Process in batches of 50 to avoid overwhelming the RPC (reduced from 100)
@@ -172,7 +178,7 @@ export class HistoricalBalanceFetcher {
       // Process each transaction
       for (const tx of transactions) {
         if (tx) {
-          this.extractTokenChanges(tx, walletAddress, tokenBalances);
+          this.extractTokenChanges(tx, walletAddress, tokenAccounts);
         }
       }
 
@@ -193,77 +199,135 @@ export class HistoricalBalanceFetcher {
       await new Promise(resolve => setTimeout(resolve, 1000));
     }
 
-    return tokenBalances;
+    return tokenAccounts;
   }
 
   /**
    * Extract token balance changes from a transaction
+   * Now tracks balances per token ACCOUNT (not just per mint) to handle Jupiter routing correctly
    */
   private extractTokenChanges(
     tx: ParsedTransactionWithMeta,
     walletAddress: string,
-    tokenBalances: Map<string, number>
+    tokenAccounts: Map<string, { balance: number; mint: string; owner: string }>
   ): void {
     if (!tx.meta) return;
 
-    // Handle SOL balance changes
+    // Handle SOL balance changes (native SOL, not wrapped)
     const walletIndex = tx.transaction.message.accountKeys.findIndex(
       key => key.pubkey.toBase58() === walletAddress
     );
 
     if (walletIndex !== -1) {
-      const preBalance = tx.meta.preBalances[walletIndex] || 0;
       const postBalance = tx.meta.postBalances[walletIndex] || 0;
-      const solChange = (postBalance - preBalance) / 1e9; // Convert lamports to SOL
+      const solBalance = postBalance / 1e9; // Absolute SOL balance after this tx
 
-      if (solChange !== 0) {
-        const SOL_ADDRESS = 'So11111111111111111111111111111111111111112';
-        const currentSolBalance = tokenBalances.get(SOL_ADDRESS) || 0;
-        tokenBalances.set(SOL_ADDRESS, currentSolBalance + solChange);
-      }
+      // Store absolute SOL balance (same approach as SPL tokens)
+      const SOL_MINT = 'So11111111111111111111111111111111111111112';
+      tokenAccounts.set(walletAddress, {
+        balance: solBalance,
+        mint: SOL_MINT,
+        owner: walletAddress,
+      });
     }
 
-    // Handle SPL token balance changes
+    // Handle SPL token balance changes - track by TOKEN ACCOUNT address
     if (tx.meta.preTokenBalances && tx.meta.postTokenBalances) {
-      // Create maps for easier lookup
-      const preBalances = new Map<string, number>();
-      const postBalances = new Map<string, number>();
+      // Create maps for easier lookup by account index
+      const preBalances = new Map<number, { amount: number; mint: string; owner: string }>();
 
-      // Index pre-balances by account
+      // Index pre-balances by account index
       for (const preToken of tx.meta.preTokenBalances) {
-        if (preToken.owner === walletAddress && preToken.uiTokenAmount.uiAmount !== null) {
-          const key = `${preToken.accountIndex}_${preToken.mint}`;
-          preBalances.set(key, preToken.uiTokenAmount.uiAmount);
+        if (preToken.uiTokenAmount.uiAmount !== null) {
+          preBalances.set(preToken.accountIndex, {
+            amount: preToken.uiTokenAmount.uiAmount,
+            mint: preToken.mint,
+            owner: preToken.owner || '',
+          });
         }
       }
 
-      // Process post-balances and calculate changes
+      // Process post-balances - store ABSOLUTE balances for wallet-owned accounts
+      // NOTE: uiAmount is null when balance is 0 - we must handle this, not skip it
       for (const postToken of tx.meta.postTokenBalances) {
-        if (postToken.owner === walletAddress && postToken.uiTokenAmount.uiAmount !== null) {
-          const key = `${postToken.accountIndex}_${postToken.mint}`;
-          const preBal = preBalances.get(key) || 0;
-          const postBal = postToken.uiTokenAmount.uiAmount;
-          const change = postBal - preBal;
+        const accountAddress = tx.transaction.message.accountKeys[postToken.accountIndex].pubkey.toBase58();
+        const preBal = preBalances.get(postToken.accountIndex);
+        const preOwner = preBal?.owner || '';
+        const postOwner = postToken.owner || '';
 
-          if (change !== 0) {
-            const currentBalance = tokenBalances.get(postToken.mint) || 0;
-            tokenBalances.set(postToken.mint, currentBalance + change);
-          }
+        if (postOwner === walletAddress) {
+          // uiAmount is null when balance is 0 - treat null as 0
+          const balance = postToken.uiTokenAmount.uiAmount ?? 0;
+          tokenAccounts.set(accountAddress, {
+            balance,
+            mint: postToken.mint,
+            owner: walletAddress,
+          });
+        } else if (preOwner === walletAddress && postOwner !== walletAddress) {
+          tokenAccounts.delete(accountAddress);
+        }
+      }
+
+      // Handle CLOSED accounts: present in preTokenBalances but absent in postTokenBalances
+      // When a token account is closed via closeAccount instruction, it vanishes from post balances
+      const postAccountIndices = new Set(tx.meta.postTokenBalances.map(b => b.accountIndex));
+      for (const [index, preBal] of preBalances.entries()) {
+        if (!postAccountIndices.has(index) && preBal.owner === walletAddress) {
+          const accountAddress = tx.transaction.message.accountKeys[index].pubkey.toBase58();
+          tokenAccounts.delete(accountAddress);
         }
       }
     }
   }
 
   /**
-   * Convert token balance map to TokenBalance array
+   * Convert token account map to TokenBalance array
+   * Filters for wallet-owned accounts only, then aggregates by mint address
+   * This prevents Jupiter routing accounts from inflating balances
    */
   private async convertToTokenBalances(
-    tokenBalances: Map<string, number>
+    tokenAccounts: Map<string, { balance: number; mint: string; owner: string }>,
+    walletAddress: string
   ): Promise<TokenBalance[]> {
+    // First, aggregate balances by mint address, only including wallet-owned accounts
+    const mintBalances = new Map<string, { balance: number; accounts: string[] }>();
+
+    console.log(`[Historical] Final token accounts snapshot:`);
+    let totalAccounts = 0;
+    let walletOwnedAccounts = 0;
+
+    for (const [accountAddress, accountInfo] of tokenAccounts.entries()) {
+      totalAccounts++;
+      // Only include accounts with positive balances
+      if (accountInfo.balance > 0) {
+        walletOwnedAccounts++;
+        const current = mintBalances.get(accountInfo.mint) || { balance: 0, accounts: [] };
+        current.balance += accountInfo.balance;
+        current.accounts.push(accountAddress.slice(0, 8));
+        mintBalances.set(accountInfo.mint, current);
+
+        // Special logging for USDC
+        const isUSDC = accountInfo.mint === 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
+        if (isUSDC) {
+          console.log(`[Historical] 💰 USDC Account ${accountAddress.slice(0, 12)}...: ${accountInfo.balance.toFixed(2)}`);
+        }
+      }
+    }
+
+    console.log(`[Historical] Found ${walletOwnedAccounts} wallet-owned accounts`);
+
+    // Log USDC totals
+    const usdcMint = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
+    const usdcInfo = mintBalances.get(usdcMint);
+    if (usdcInfo) {
+      console.log(`[Historical] 🎯 TOTAL USDC: ${usdcInfo.balance.toFixed(2)} across ${usdcInfo.accounts.length} accounts: ${usdcInfo.accounts.join(', ')}`);
+    }
+
+    // Now convert to TokenBalance array with metadata
     const balances: TokenBalance[] = [];
 
-    for (const [mintAddress, balance] of tokenBalances.entries()) {
-      if (balance > 0) {
+    for (const [mintAddress, info] of mintBalances.entries()) {
+      if (info.balance > 0) {
         // Get token metadata
         const metadata = await this.getTokenMetadata(mintAddress);
 
@@ -271,7 +335,7 @@ export class HistoricalBalanceFetcher {
           tokenAddress: mintAddress,
           tokenName: metadata.name,
           tokenSymbol: metadata.symbol,
-          balance,
+          balance: info.balance,
           decimals: metadata.decimals,
         });
       }
